@@ -1,5 +1,5 @@
-use structopt::StructOpt;
 use std::{fs, io};
+use structopt::StructOpt;
 use walkdir::WalkDir;
 
 fn main() -> Result<(), io::Error> {
@@ -17,8 +17,8 @@ fn main() -> Result<(), io::Error> {
 }
 
 #[derive(Clone, StructOpt, Debug)]
-#[structopt(name = "rusorto")]
+#[structopt(name = "sopho")]
 pub struct CommandlineOptions {
-    #[structopt( help = "Directory to process", index = 1 )]
+    #[structopt(help = "Directory to process", index = 1)]
     pub dir: String,
 }
