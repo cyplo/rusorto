@@ -1,6 +1,7 @@
+use anyhow::*;
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
-use rexif::ExifTag;
+use rexif::{ExifTag, TagValue};
 use std::path::PathBuf;
 use std::{fs, io};
 use structopt::StructOpt;
@@ -17,7 +18,10 @@ fn main() -> Result<()> {
         .map(|e| e.into_path())
         .filter(|e| e.is_file())
     {
-        let from_exif = date_from_exif(entry)?;
+        let from_exif = date_from_exif(entry.clone())?;
+        if let Some(date) = from_exif {
+            println!("{}: {}", entry.to_string_lossy(), date);
+        }
         // get date from exif
         // get date from file name
         // if they don't agree - use exif
@@ -36,7 +40,16 @@ fn date_from_exif(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
 
     match date {
         None => Ok(None),
-        Some(date) => Ok(Some(NaiveDateTime::from_timestamp(0, 0))),
+        Some(date) => Ok(Some(parse_date(date.value)?)),
+    }
+}
+
+fn parse_date(value: TagValue) -> Result<NaiveDateTime> {
+    match value {
+        TagValue::Ascii(text) => {
+            NaiveDateTime::parse_from_str(&text, "%Y:%m:%d %H:%M:%S").map_err(|e| anyhow!("{}", e))
+        }
+        _ => Err(anyhow!("")),
     }
 }
 
