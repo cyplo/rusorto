@@ -1,6 +1,7 @@
 use anyhow::*;
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
+use rayon::prelude::*;
 use rexif::{ExifTag, TagValue};
 use std::path::PathBuf;
 use std::{fs, io};
@@ -12,12 +13,12 @@ fn main() -> Result<()> {
 
     let path = fs::canonicalize(options.dir)?;
     println!("processing {:?}", path);
-    for entry in WalkDir::new(path)
+    let entries = WalkDir::new(path)
         .into_iter()
         .filter_map(|e| e.ok())
         .map(|e| e.into_path())
-        .filter(|e| e.is_file())
-    {
+        .filter(|e| e.is_file());
+    for entry in entries {
         let from_exif = date_from_exif(entry.clone())?;
         if let Some(date) = from_exif {
             println!("{}: {}", entry.to_string_lossy(), date);
