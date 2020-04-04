@@ -8,6 +8,8 @@ use structopt::StructOpt;
 use walkdir::WalkDir;
 use std::fs;
 
+mod exif;
+
 fn main() -> Result<()> {
     let options = CommandlineOptions::from_args();
 
@@ -22,7 +24,7 @@ fn main() -> Result<()> {
 
     let dates: HashMap<PathBuf, NaiveDateTime> = entries
         .filter_map(|e| {
-            let from_exif = sopho::exif::date_from_exif(e.clone());
+            let from_exif = crate::exif::date_from_exif(e.clone());
             if let Ok(Some(date)) = from_exif {
                 return Some((e, date));
             }
