@@ -7,6 +7,8 @@ use std::path::PathBuf;
 use std::{fs, io};
 use structopt::StructOpt;
 use walkdir::WalkDir;
+use std::iter::Map;
+use std::collections::HashMap;
 
 fn main() -> Result<()> {
     let options = CommandlineOptions::from_args();
@@ -18,22 +20,24 @@ fn main() -> Result<()> {
         .filter_map(|e| e.ok())
         .map(|e| e.into_path())
         .filter(|e| e.is_file());
-    for entry in entries {
-        let from_exif = date_from_exif(entry.clone())?;
-        if let Some(date) = from_exif {
-            println!("{}: {}", entry.to_string_lossy(), date);
+
+    let dates : HashMap <PathBuf, NaiveDateTime> = entries.filter_map( |e| {
+        let from_exif = date_from_exif(e.clone());
+        if let Ok(Some(date)) = from_exif {
+            return Some((e, date));
         }
-        // get date from exif
-        // get date from file name
-        // if they don't agree - use exif
-        // if there's no exif - use file name
+        return None;
+    }  ).collect();
+
+    for date in dates {
+        println!("{}: {}", date.0.to_string_lossy(), date.1);
     }
     Ok(())
 }
 
 fn date_from_exif(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
     let exif =
-        rexif::parse_file(entry.as_path()).context(format!("{}", entry.to_string_lossy()))?;
+        rexif::parse_file(entry.as_path()).context(format!("path: {}", entry.to_string_lossy()))?;
     let date = exif.entries.into_iter().find_map(|e| match e.tag {
         ExifTag::DateTime => Some(e),
         _ => None,
@@ -41,16 +45,16 @@ fn date_from_exif(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
 
     match date {
         None => Ok(None),
-        Some(date) => Ok(Some(parse_date(date.value)?)),
+        Some(date) => Ok(Some(parse_date(date.value).context(format!("{}", entry.to_string_lossy()))?)),
     }
 }
 
 fn parse_date(value: TagValue) -> Result<NaiveDateTime> {
     match value {
         TagValue::Ascii(text) => {
-            NaiveDateTime::parse_from_str(&text, "%Y:%m:%d %H:%M:%S").map_err(|e| anyhow!("{}", e))
+            NaiveDateTime::parse_from_str(&text, "%Y:%m:%d %H:%M:%S").map_err(|e| anyhow!("Error parsing date from exif: {}", e))
         }
-        _ => Err(anyhow!("")),
+        _ => Err(anyhow!("Tag value is not text")),
     }
 }
 
