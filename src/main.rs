@@ -1,14 +1,16 @@
+use std::{fs, io};
+use std::collections::HashMap;
+use std::iter::Map;
+use std::path::PathBuf;
+
 use anyhow::*;
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
+use exif::In;
+use exif::Tag;
 use rayon::prelude::*;
-use rexif::{ExifTag, TagValue};
-use std::path::PathBuf;
-use std::{fs, io};
 use structopt::StructOpt;
 use walkdir::WalkDir;
-use std::iter::Map;
-use std::collections::HashMap;
 
 fn main() -> Result<()> {
     let options = CommandlineOptions::from_args();
@@ -24,9 +26,9 @@ fn main() -> Result<()> {
     let dates : HashMap <PathBuf, NaiveDateTime> = entries.filter_map( |e| {
         let from_exif = date_from_exif(e.clone());
         if let Ok(Some(date)) = from_exif {
-            return Some((e, date));
+            return Some((e, date))
         }
-        return None;
+        None
     }  ).collect();
 
     for date in dates {
@@ -36,26 +38,21 @@ fn main() -> Result<()> {
 }
 
 fn date_from_exif(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
-    let exif =
-        rexif::parse_file(entry.as_path()).context(format!("path: {}", entry.to_string_lossy()))?;
-    let date = exif.entries.into_iter().find_map(|e| match e.tag {
-        ExifTag::DateTime => Some(e),
-        _ => None,
-    });
-
-    match date {
-        None => Ok(None),
-        Some(date) => Ok(Some(parse_date(date.value).context(format!("{}", entry.to_string_lossy()))?)),
+    let file = std::fs::File::open(entry.clone())?;
+    let mut bufreader = std::io::BufReader::new(&file);
+    let exifreader = exif::Reader::new();
+    let exif_data = exifreader.read_from_container(&mut bufreader)?;
+    let date_time_data = exif_data.get_field(Tag::DateTime, In::PRIMARY);
+    if let Some(data) = date_time_data {
+        let text = format!("{}", data.value.display_as(data.tag));
+        let date = parse_date(text).context(format!("{}", entry.to_string_lossy()))?;
+        return Ok(Some(date))
     }
+    Ok(None)
 }
 
-fn parse_date(value: TagValue) -> Result<NaiveDateTime> {
-    match value {
-        TagValue::Ascii(text) => {
-            NaiveDateTime::parse_from_str(&text, "%Y:%m:%d %H:%M:%S").map_err(|e| anyhow!("Error parsing date from exif: {}", e))
-        }
-        _ => Err(anyhow!("Tag value is not text")),
-    }
+fn parse_date(text: String) -> Result<NaiveDateTime> {
+    NaiveDateTime::parse_from_str(&text, "%Y-%m-%d %H:%M:%S").map_err(|e| anyhow!("Error parsing date from exif: {}", e))
 }
 
 #[derive(Clone, StructOpt, Debug)]
