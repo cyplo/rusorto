@@ -5,9 +5,11 @@ authors = ["Cyryl Płotnicki <cyplo@cyplo.net>"]
 edition = "2018"
 
 [dependencies]
+async-std = "1.5"
 anyhow = "1.0"
 chrono = "0.4"
 dashmap = "3.8"
+futures = "0.3"
 kamadak-exif = "0.5"
 lazy_static = "1.4"
 rayon = "1.3"

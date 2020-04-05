@@ -1,12 +1,18 @@
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use rayon::prelude::*;
-use std::fs;
 use structopt::StructOpt;
+use futures::future::LocalBoxFuture;
+
+use async_std::{
+    fs::{self, *},
+    path::*,
+    prelude::*,
+};
 use walkdir::WalkDir;
+use futures::{Future, FutureExt};
 
 mod from;
 
@@ -14,7 +20,7 @@ fn main() -> Result<()> {
     let options = CommandlineOptions::from_args();
 
     let dir = &options.dir;
-    let path = fs::canonicalize(dir).context(dir.to_string())?;
+    let path = std::fs::canonicalize(dir).context(dir.to_string())?;
     println!("processing {:?}", path);
     let entries = WalkDir::new(path)
         .into_iter()
@@ -22,7 +28,7 @@ fn main() -> Result<()> {
         .map(|e| e.into_path())
         .filter(|e| e.is_file());
 
-    let dates: HashMap<PathBuf, NaiveDateTime> = entries
+    let dates: HashMap<std::path::PathBuf, NaiveDateTime> = entries
         .filter_map(|e| {
             if let Ok(Some(date)) = crate::from::exif::get(e.clone()) {
                 return Some((e, date));
@@ -38,6 +44,36 @@ fn main() -> Result<()> {
         println!("{}: {}", date.0.to_string_lossy(), date.1);
     }
     Ok(())
+}
+
+async fn walkdir<R>(path: impl AsRef<Path>, mut cb: impl FnMut(DirEntry) -> R)
+where
+    R: Future<Output = ()>,
+{
+    fn walkdir_inner<'a, R>(
+        path: &'a Path,
+        cb: &'a mut dyn FnMut(DirEntry) -> R,
+    ) -> LocalBoxFuture<'a, ()>
+    where
+        R: Future<Output = ()>,
+    {
+        async move {
+            let mut entries = fs::read_dir(path).await.unwrap();
+
+            while let Some(path) = entries.next().await {
+                let entry = path.unwrap();
+                let path = entry.path();
+                if path.is_file().await {
+                    cb(entry).await
+                } else {
+                    walkdir_inner(&path, cb).await
+                }
+            }
+        }
+        .boxed_local()
+    }
+
+    walkdir_inner(path.as_ref(), &mut cb).await
 }
 
 #[derive(Clone, StructOpt, Debug)]
