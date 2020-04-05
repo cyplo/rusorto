@@ -1,14 +1,14 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use rayon::prelude::*;
+use std::fs;
 use structopt::StructOpt;
 use walkdir::WalkDir;
-use std::fs;
 
-mod exif;
+mod from;
 
 fn main() -> Result<()> {
     let options = CommandlineOptions::from_args();
@@ -24,8 +24,10 @@ fn main() -> Result<()> {
 
     let dates: HashMap<PathBuf, NaiveDateTime> = entries
         .filter_map(|e| {
-            let from_exif = crate::exif::date_from_exif(e.clone());
-            if let Ok(Some(date)) = from_exif {
+            if let Ok(Some(date)) = crate::from::exif::get(e.clone()) {
+                return Some((e, date));
+            }
+            if let Some(date) = crate::from::filename::get(e.clone()) {
                 return Some((e, date));
             }
             None

@@ -1,11 +1,10 @@
-
 use anyhow::*;
 use chrono::NaiveDateTime;
 use exif::Tag;
 use exif::{Exif, In};
 use std::path::PathBuf;
 
-pub fn date_from_exif(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
+pub fn get(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
     let exif_data = load_exif_data(&entry).context(format!("{}", entry.to_string_lossy()))?;
     let date_time_data = exif_data.get_field(Tag::DateTime, In::PRIMARY);
     if let Some(data) = date_time_data {
