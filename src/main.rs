@@ -4,77 +4,46 @@ use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use rayon::prelude::*;
 use structopt::StructOpt;
-use futures::future::LocalBoxFuture;
+use ::walkdir::WalkDir;
+use futures::stream::{StreamExt, TryStreamExt};
+use std::path::PathBuf;
 
-use async_std::{
-    fs::{self, *},
-    path::*,
-    prelude::*,
-};
-use walkdir::WalkDir;
-use futures::{Future, FutureExt};
-
+mod walkdir;
 mod from;
 
-fn main() -> Result<()> {
+use tokio::prelude::*;
+use futures::Future;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = CommandlineOptions::from_args();
 
     let dir = &options.dir;
     let path = std::fs::canonicalize(dir).context(dir.to_string())?;
     println!("processing {:?}", path);
-    let entries = WalkDir::new(path)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .map(|e| e.into_path())
-        .filter(|e| e.is_file());
+    let entries = walkdir::entries(path);
 
-    let dates: HashMap<std::path::PathBuf, NaiveDateTime> = entries
-        .filter_map(|e| {
-            if let Ok(Some(date)) = crate::from::exif::get(e.clone()) {
-                return Some((e, date));
-            }
-            if let Some(date) = crate::from::filename::get(e.clone()) {
-                return Some((e, date));
-            }
-            None
-        })
-        .collect();
+    let dates = entries.filter_map(|e| async move {
+        e.map(|e| date(e.path())).ok()
+    });
 
-    for date in dates {
-        println!("{}: {}", date.0.to_string_lossy(), date.1);
-    }
+    dates.for_each_concurrent(None, |e| async move {
+        println!("{:?}", e);
+    }).await;
+
     Ok(())
 }
 
-async fn walkdir<R>(path: impl AsRef<Path>, mut cb: impl FnMut(DirEntry) -> R)
-where
-    R: Future<Output = ()>,
-{
-    fn walkdir_inner<'a, R>(
-        path: &'a Path,
-        cb: &'a mut dyn FnMut(DirEntry) -> R,
-    ) -> LocalBoxFuture<'a, ()>
-    where
-        R: Future<Output = ()>,
-    {
-        async move {
-            let mut entries = fs::read_dir(path).await.unwrap();
-
-            while let Some(path) = entries.next().await {
-                let entry = path.unwrap();
-                let path = entry.path();
-                if path.is_file().await {
-                    cb(entry).await
-                } else {
-                    walkdir_inner(&path, cb).await
-                }
-            }
-        }
-        .boxed_local()
+fn date(e: PathBuf) -> Option<(PathBuf, NaiveDateTime)> {
+    if let Ok(Some(date)) = crate::from::exif::get(e.clone()) {
+        return Some((e, date));
     }
-
-    walkdir_inner(path.as_ref(), &mut cb).await
+    if let Some(date) = crate::from::filename::get(e.clone()) {
+        return Some((e, date));
+    }
+    None
 }
+
 
 #[derive(Clone, StructOpt, Debug)]
 #[structopt(name = "sopho")]

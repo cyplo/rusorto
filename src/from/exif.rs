@@ -4,12 +4,12 @@ use exif::Tag;
 use exif::{Exif, In};
 use std::path::PathBuf;
 
-pub fn get(entry: PathBuf) -> Result<Option<NaiveDateTime>> {
-    let exif_data = load_exif_data(&entry).context(format!("{}", entry.to_string_lossy()))?;
+pub fn get(path: PathBuf) -> Result<Option<NaiveDateTime>> {
+    let exif_data = load_exif_data(&path).context(format!("{}", path.to_string_lossy()))?;
     let date_time_data = exif_data.get_field(Tag::DateTime, In::PRIMARY);
     if let Some(data) = date_time_data {
         let text = format!("{}", data.value.display_as(data.tag));
-        let date = parse_exif_date(text).context(format!("{}", entry.to_string_lossy()))?;
+        let date = parse_exif_date(text).context(format!("{}", path.to_string_lossy()))?;
         return Ok(Some(date));
     }
     Ok(None)
