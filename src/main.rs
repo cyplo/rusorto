@@ -1,35 +1,35 @@
 use std::collections::HashMap;
 
+use ::walkdir::WalkDir;
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
-use rayon::prelude::*;
-use structopt::StructOpt;
-use ::walkdir::WalkDir;
 use futures::stream::{StreamExt, TryStreamExt};
+use rayon::prelude::*;
 use std::path::PathBuf;
+use structopt::StructOpt;
 
-mod walkdir;
 mod from;
+mod walkdir;
 
-use tokio::prelude::*;
 use futures::Future;
+use tokio::prelude::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = CommandlineOptions::from_args();
 
     let dir = &options.dir;
-    let path = std::fs::canonicalize(dir).context(dir.to_string())?;
-    println!("processing {:?}", path);
-    let entries = walkdir::entries(path);
+    let source_path = std::fs::canonicalize(dir).context(dir.to_string())?;
+    println!("processing {:?}", source_path);
+    let all_files = walkdir::entries(source_path);
 
-    let dates = entries.filter_map(|e| async move {
-        e.map(|e| date(e.path())).ok()
-    });
+    let dates = all_files.map(|e| async move { e.map(|e| date(e.path())) });
 
-    dates.for_each_concurrent(None, |e| async move {
-        println!("{:?}", e);
-    }).await;
+    dates
+        .for_each_concurrent(None, |e| async move {
+            println!("{:?}", e.await);
+        })
+        .await;
 
     Ok(())
 }
@@ -43,7 +43,6 @@ fn date(e: PathBuf) -> Option<(PathBuf, NaiveDateTime)> {
     }
     None
 }
-
 
 #[derive(Clone, StructOpt, Debug)]
 #[structopt(name = "sopho")]
