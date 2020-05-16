@@ -31,9 +31,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_path = &options.target_path;
     fs::create_dir_all(target_path).context(format!("Cannot create {}", target_path))?;
     let target_path = fs::canonicalize(target_path).context(target_path.to_string())?;
+    let target_path = Arc::new(target_path);
+    let target_paths = dates.map(|d| {
+        d.then(|f| async {
+            f.map(|date| target_path_for(source_path.as_ref(), target_path.as_ref(), date))
+        })
+    });
 
-    let target_paths =
-        dates.map(|d| d.then(|f| async { f.map(|pd| target_path_for(source_path.as_ref(), pd)) }));
+    // TODO - make sure there are no collisions - detect duplicates in target paths
+    // for duplicates - check hash if true duplicate
+    // check free space on disk before copy
 
     target_paths
         .for_each_concurrent(None, |e| async move {
@@ -47,20 +54,31 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn target_path_for(
     source_path: impl Into<PathBuf>,
+    target_path: impl Into<PathBuf>,
     path_and_date: (PathBuf, Option<NaiveDateTime>),
-) -> Result<(PathBuf, PathBuf, Option<NaiveDateTime>), Error> {
+) -> Result<(PathBuf, PathBuf), Error> {
     let path = path_and_date.0;
     let date = path_and_date.1;
-    let target = path
-        .strip_prefix(source_path.into())
-        .map(|p| p.to_string_lossy())
-        .map_err(|e| anyhow!(e));
-    if let Err(e) = target {
-        return Err(anyhow!(e));
-    }
-    let target = target.unwrap().to_string();
+    let source_path = source_path.into();
+    let new_name_from_date: Result<String> = match date {
+        Some(date) => {
+            let date_text = date.format("%Y%m%d_%H%M%S").to_string();
+            let extension = path.extension().map_or("".to_string(), |e| {
+                format!(".{}", e.to_string_lossy().to_lowercase())
+            });
+            Ok(format!("{}{}", date_text, extension))
+        }
+        None => {
+            let target = path.strip_prefix(&source_path).map_err(|e| anyhow!(e));
+            match target {
+                Ok(target) => Ok(target.to_string_lossy().to_string()),
+                Err(e) => Err(anyhow!(e)),
+            }
+        }
+    };
+    let target = &target_path.into().join(new_name_from_date?);
     let target = Path::new(&target);
-    Ok((path, target.to_path_buf(), date))
+    Ok((path, target.to_path_buf()))
 }
 
 fn date(e: PathBuf) -> Option<NaiveDateTime> {
