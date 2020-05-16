@@ -23,7 +23,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("processing {:?}", source_path);
     let all_files = walkdir::entries(source_path);
 
-    let dates = all_files.map(|e| async move { e.map(|e| date(e.path())) });
+    let dates = all_files.map(|e| async move { e.map(|e| (e.path(), date(e.path()))) });
 
     dates
         .for_each_concurrent(None, |e| async move {
