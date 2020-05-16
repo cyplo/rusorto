@@ -15,6 +15,8 @@ use std::fs;
 use std::sync::Arc;
 use tokio::prelude::*;
 
+static UNSORTED_PATH_SEGMENT: &str = "unsorted";
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = CommandlineOptions::from_args();
@@ -43,15 +45,37 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
     });
 
+    let unsorted_directory = target_path.join(UNSORTED_PATH_SEGMENT);
+    fs::create_dir_all(&unsorted_directory)
+        .context(format!("Cannot create {:?}", &unsorted_directory))?;
+
     // TODO - make sure there are no collisions - detect duplicates in target paths
     // for duplicates - check hash if true duplicate
     // check free space on disk before copy
 
     target_paths
         .for_each_concurrent(None, |e| async move {
-            println!("{:?}", e.await);
+            let to_and_from = e.await;
+            match to_and_from {
+                Ok(to_and_from) => {
+                    let from = to_and_from.0;
+                    let to = to_and_from.1;
+                    match to {
+                        Ok(NewPath::Simple(path)) => {
+                            println!("copying {:?} to {:?}", &from, &path);
+                        }
+                        Ok(NewPath::UnderNewDirectory(path)) => {
+                            println!("copying {:?} to {:?} (new parent)", &from, &path);
+                        }
+                        Err(e) => eprintln!("{}", e),
+                    }
+                }
+                Err(e) => eprintln!("{}", e),
+            }
         })
         .await;
+
+    // TODO: delete unsorted if empty
 
     Ok(())
 }
@@ -66,7 +90,7 @@ fn target_path_for(
     source_path: impl Into<PathBuf>,
     target_path: impl Into<PathBuf>,
     path_and_date: (PathBuf, Option<NaiveDateTime>),
-) -> Result<NewPath, Error> {
+) -> Result<NewPath> {
     let path = path_and_date.0;
     let date = path_and_date.1;
     let source_path = source_path.into();
@@ -80,7 +104,7 @@ fn target_path_for(
             let target = path.strip_prefix(&source_path).map_err(|e| anyhow!(e));
             match target {
                 Ok(target) => {
-                    let parent = target_path.into().join("unsorted");
+                    let parent = target_path.into().join(UNSORTED_PATH_SEGMENT);
                     let full_path = parent.join(target);
                     Ok(NewPath::UnderNewDirectory(full_path))
                 }
