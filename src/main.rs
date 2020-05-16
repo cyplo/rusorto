@@ -34,7 +34,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let target_path = Arc::new(target_path);
     let target_paths = dates.map(|d| {
         d.then(|f| async {
-            f.map(|date| target_path_for(source_path.as_ref(), target_path.as_ref(), date))
+            f.map(|path_and_date| {
+                (
+                    path_and_date.0.to_owned(),
+                    target_path_for(source_path.as_ref(), target_path.as_ref(), path_and_date),
+                )
+            })
         })
     });
 
@@ -44,41 +49,53 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     target_paths
         .for_each_concurrent(None, |e| async move {
-            let e = e.await;
-            println!("{:?}", e);
+            println!("{:?}", e.await);
         })
         .await;
 
     Ok(())
 }
 
+#[derive(Debug)]
+enum NewPath {
+    Simple(PathBuf),
+    UnderNewDirectory(PathBuf),
+}
+
 fn target_path_for(
     source_path: impl Into<PathBuf>,
     target_path: impl Into<PathBuf>,
     path_and_date: (PathBuf, Option<NaiveDateTime>),
-) -> Result<(PathBuf, PathBuf), Error> {
+) -> Result<NewPath, Error> {
     let path = path_and_date.0;
     let date = path_and_date.1;
     let source_path = source_path.into();
-    let new_name_from_date: Result<String> = match date {
+    match date {
         Some(date) => {
-            let date_text = date.format("%Y%m%d_%H%M%S").to_string();
-            let extension = path.extension().map_or("".to_string(), |e| {
-                format!(".{}", e.to_string_lossy().to_lowercase())
-            });
-            Ok(format!("{}{}", date_text, extension))
+            let file_name = file_name_from_date(&path, date);
+            let full_path = &target_path.into().join(file_name);
+            Ok(NewPath::Simple(full_path.to_owned()))
         }
         None => {
             let target = path.strip_prefix(&source_path).map_err(|e| anyhow!(e));
             match target {
-                Ok(target) => Ok(target.to_string_lossy().to_string()),
+                Ok(target) => {
+                    let parent = target_path.into().join("unsorted");
+                    let full_path = parent.join(target);
+                    Ok(NewPath::UnderNewDirectory(full_path))
+                }
                 Err(e) => Err(anyhow!(e)),
             }
         }
-    };
-    let target = &target_path.into().join(new_name_from_date?);
-    let target = Path::new(&target);
-    Ok((path, target.to_path_buf()))
+    }
+}
+
+fn file_name_from_date(path: &PathBuf, date: NaiveDateTime) -> String {
+    let date_text = date.format("%Y%m%d_%H%M%S").to_string();
+    let extension = path.extension().map_or("".to_string(), |e| {
+        format!(".{}", e.to_string_lossy().to_lowercase())
+    });
+    format!("{}{}", date_text, extension)
 }
 
 fn date(e: PathBuf) -> Option<NaiveDateTime> {
