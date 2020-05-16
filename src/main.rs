@@ -18,12 +18,17 @@ use tokio::prelude::*;
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = CommandlineOptions::from_args();
 
-    let dir = &options.dir;
-    let source_path = std::fs::canonicalize(dir).context(dir.to_string())?;
+    let source_path = &options.source_path;
+    let source_path = std::fs::canonicalize(source_path)
+        .context(format!("Cannot read {}", source_path.to_string()))?;
     println!("processing {:?}", source_path);
     let all_files = walkdir::entries(source_path);
 
     let dates = all_files.map(|e| async move { e.map(|e| (e.path(), date(e.path()))) });
+
+    let target_path = &options.target_path;
+    std::fs::create_dir_all(target_path).context(format!("Cannot create {}", target_path))?;
+    let target_path = std::fs::canonicalize(target_path).context(target_path.to_string())?;
 
     dates
         .for_each_concurrent(None, |e| async move {
@@ -48,5 +53,7 @@ fn date(e: PathBuf) -> Option<(PathBuf, NaiveDateTime)> {
 #[structopt(name = "sopho")]
 pub struct CommandlineOptions {
     #[structopt(help = "Directory to process", index = 1)]
-    pub dir: String,
+    pub source_path: String,
+    #[structopt(help = "Target directory to copy files to", index = 2)]
+    pub target_path: String,
 }
