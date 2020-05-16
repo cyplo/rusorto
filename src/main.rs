@@ -1,17 +1,17 @@
-use std::collections::HashMap;
-
-use ::walkdir::WalkDir;
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use futures::stream::{StreamExt, TryStreamExt};
 use rayon::prelude::*;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use structopt::StructOpt;
 
+use anyhow::*;
 mod from;
 mod walkdir;
 
 use futures::Future;
+use std::fs;
+use std::sync::Arc;
 use tokio::prelude::*;
 
 #[tokio::main]
@@ -19,18 +19,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let options = CommandlineOptions::from_args();
 
     let source_path = &options.source_path;
-    let source_path = std::fs::canonicalize(source_path)
+    let source_path = fs::canonicalize(source_path)
         .context(format!("Cannot read {}", source_path.to_string()))?;
+    let source_path = Arc::new(source_path);
     println!("processing {:?}", source_path);
-    let all_files = walkdir::entries(source_path);
+    let all_files = walkdir::entries(source_path.as_ref());
 
-    let dates = all_files.map(|e| async move { e.map(|e| (e.path(), date(e.path()))) });
+    let dates = all_files.map(|e| async { e.map(|e| (e.path(), date(e.path()))) });
 
     let target_path = &options.target_path;
-    std::fs::create_dir_all(target_path).context(format!("Cannot create {}", target_path))?;
-    let target_path = std::fs::canonicalize(target_path).context(target_path.to_string())?;
+    fs::create_dir_all(target_path).context(format!("Cannot create {}", target_path))?;
+    let target_path = fs::canonicalize(target_path).context(target_path.to_string())?;
 
-    dates
+    let target_paths = dates.map(|d| async {
+        let path_and_date = d.await;
+        match path_and_date {
+            Ok(path_and_date) => target_path_for(source_path.as_ref(), path_and_date),
+            Err(e) => Err(anyhow!(e)),
+        }
+    });
+
+    target_paths
         .for_each_concurrent(None, |e| async move {
             println!("{:?}", e.await);
         })
@@ -39,12 +48,30 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-fn date(e: PathBuf) -> Option<(PathBuf, NaiveDateTime)> {
+fn target_path_for(
+    source_path: impl Into<PathBuf>,
+    path_and_date: (PathBuf, Option<NaiveDateTime>),
+) -> Result<(PathBuf, PathBuf, Option<NaiveDateTime>), Error> {
+    let path = path_and_date.0;
+    let date = path_and_date.1;
+    let target = path
+        .strip_prefix(source_path.into())
+        .map(|p| p.to_string_lossy())
+        .map_err(|e| anyhow!(e));
+    if let Err(e) = target {
+        return Err(anyhow!(e));
+    }
+    let target = target.unwrap().to_string();
+    let target = Path::new(&target);
+    Ok((path, target.to_path_buf(), date))
+}
+
+fn date(e: PathBuf) -> Option<NaiveDateTime> {
     if let Ok(Some(date)) = crate::from::exif::get(e.clone()) {
-        return Some((e, date));
+        return Some(date);
     }
     if let Some(date) = crate::from::filename::get(e.clone()) {
-        return Some((e, date));
+        return Some(date);
     }
     None
 }
