@@ -10,6 +10,7 @@ mod from;
 mod walkdir;
 
 use futures::Future;
+use futures::FutureExt;
 use std::fs;
 use std::sync::Arc;
 use tokio::prelude::*;
@@ -31,17 +32,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     fs::create_dir_all(target_path).context(format!("Cannot create {}", target_path))?;
     let target_path = fs::canonicalize(target_path).context(target_path.to_string())?;
 
-    let target_paths = dates.map(|d| async {
-        let path_and_date = d.await;
-        match path_and_date {
-            Ok(path_and_date) => target_path_for(source_path.as_ref(), path_and_date),
-            Err(e) => Err(anyhow!(e)),
-        }
-    });
+    let target_paths =
+        dates.map(|d| d.then(|f| async { f.map(|pd| target_path_for(source_path.as_ref(), pd)) }));
 
     target_paths
         .for_each_concurrent(None, |e| async move {
-            println!("{:?}", e.await);
+            let e = e.await;
+            println!("{:?}", e);
         })
         .await;
 
