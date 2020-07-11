@@ -1,19 +1,16 @@
-use anyhow::{Context, Result};
-use chrono::NaiveDateTime;
-use futures::stream::{StreamExt, TryStreamExt};
-use rayon::prelude::*;
-use std::path::{Path, PathBuf};
-use structopt::StructOpt;
+use std::fs;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::*;
+use anyhow::{Context, Result};
+use chrono::NaiveDateTime;
+use futures::stream::StreamExt;
+use futures::FutureExt;
+use structopt::StructOpt;
+
 mod from;
 mod walkdir;
-
-use futures::Future;
-use futures::FutureExt;
-use std::fs;
-use std::sync::Arc;
-use tokio::prelude::*;
 
 static UNSORTED_PATH_SEGMENT: &str = "unsorted";
 
@@ -61,12 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     let from = to_and_from.0;
                     let to = to_and_from.1;
                     match to {
-                        Ok(NewPath::Simple(path)) => {
-                            println!("copying {:?} to {:?}", &from, &path);
-                        }
-                        Ok(NewPath::UnderNewDirectory(path)) => {
-                            println!("copying {:?} to {:?} (new parent)", &from, &path);
-                        }
+                        Ok(to) => copy(from, to),
                         Err(e) => eprintln!("{}", e),
                     }
                 }
@@ -78,6 +70,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // TODO: delete unsorted if empty
 
     Ok(())
+}
+
+fn copy(from: PathBuf, to: NewPath) {
+    match to {
+        NewPath::Simple(path) => {
+            println!("copying {:?} to {:?}", &from, &path);
+        }
+        NewPath::UnderNewDirectory(path) => {
+            println!("copying {:?} to {:?} (new parent)", &from, &path);
+        }
+    }
 }
 
 #[derive(Debug)]
